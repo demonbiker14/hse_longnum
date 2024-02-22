@@ -10,15 +10,6 @@
 using namespace std;
 
 
-inline bool check_overflow_addition(uint32_t a, uint32_t b) {
-    return a <= MAX_NUM - b;
-}
-
-inline bool check_overflow_multiplication(uint32_t a, uint32_t b) {
-    return a <= MAX_NUM / b;
-}
-
-
 OperationResult sum(uint32_t a, uint32_t b) {
     uint64_t res = (uint64_t) a + b;
 
@@ -26,6 +17,23 @@ OperationResult sum(uint32_t a, uint32_t b) {
             (uint32_t) ((res / (1ULL << 32))),
             (uint32_t) ((res % (1ULL << 32)))
     };
+}
+
+OperationResult subtract(uint32_t a, uint32_t b) {
+    if (a >= b) {
+        return {0, a - b};
+    } else {
+        return {1, (uint32_t) ((uint64_t) (1ULL << 32) + a - b)};
+    }
+}
+
+OperationResult subtract(uint32_t a, uint32_t b, uint32_t overflow) {
+    int64_t calc = (int64_t)  a - overflow - b;
+    if (calc >= 0) {
+        return {0, (uint32_t) calc};
+    } else {
+        return {1, (uint32_t) ((uint64_t) (1ULL << 32) + a - overflow - b)};
+    }
 }
 
 OperationResult multiply(uint32_t a, uint32_t b) {
@@ -94,33 +102,37 @@ ParsedNumString parse_string_num(const string &str) {
 }
 
 
-LongNumber::LongNumber(string &str) : decimal({}), fractional({}), sign(Sign::POSITIVE) {
+LongNumber::LongNumber(const string str) {
     if (str.empty()) {
         return;
     }
     auto result = parse_string_num(str);
     sign = result.sign;
 
-    uint32_t curr_power = 1;
-    uint32_t chunk = 0;
+    LongNumber curr_power(1);
+    LongNumber fractional_num(0);
 
     for (int i = result.fractional_string.size() - 1; i >= 0; --i) {
         int digit = result.fractional_string[i] - '0';
-        if (!check_overflow_multiplication(i, curr_power)) {
-            // TODO overflow case
-        }
-        uint32_t summand = digit * curr_power;
-        if (!check_overflow_addition(chunk, summand)) {
-            // TODO overflow case
-        }
-        chunk += digit * curr_power;
-        if (!check_overflow_multiplication(curr_power, 10)) {
-            // TODO overflow case
-        }
-        curr_power *= 10;
-
+        auto digit_summand = LongNumber(digit) * curr_power;
+        fractional_num += digit_summand;
+        curr_power *= LongNumber(10);
     }
+    fractional = fractional_num.decimal;
+
+    curr_power = LongNumber(1);
+    LongNumber decimal_num(0);
+
+    for (int i = result.decimal_string.size() - 1; i >= 0; --i) {
+        int digit = result.decimal_string[i] - '0';
+        auto digit_summand = LongNumber(digit) * curr_power;
+        decimal_num += digit_summand;
+        curr_power *= LongNumber(10);
+    }
+    decimal = decimal_num.decimal;
+    normalise();
 }
+
 
 string LongNumber::to_string() {
     list<char> reversed_string;
@@ -155,18 +167,26 @@ LongNumber::LongNumber(const int32_t &num) {
 
 
 LongNumber operator+(const LongNumber &a, const LongNumber &b) {
+    if (a.sign != b.sign) {
+        if (a.sign == Sign::POSITIVE) {
+            return a - (-b);
+        } else {
+            return b - (-a);
+        }
+    }
+
     LongNumber c;
 
     c.fractional.resize(max<size_t>(a.fractional.size(), b.fractional.size()));
     c.decimal.resize(max<size_t>(a.decimal.size(), b.decimal.size()));
 
     if (a.fractional.size() > b.fractional.size()) {
-        for (int i = a.fractional.size() - 1; i >= 0; --i) {
+        for (int i = a.fractional.size() - 1; i >= b.fractional.size(); --i) {
 
             c.fractional[i] = a.fractional[i];
         }
     } else if (a.fractional.size() < b.fractional.size()) {
-        for (int i = b.fractional.size() - 1; i >= 0; --i) {
+        for (int i = b.fractional.size() - 1; i >= a.fractional.size(); --i) {
             c.fractional[i] = b.fractional[i];
         }
     }
@@ -204,15 +224,72 @@ LongNumber operator+(const LongNumber &a, const LongNumber &b) {
         c.decimal.push_back(overflow);
     }
     c.normalise();
+    c.sign = a.sign;
     return c;
 }
 
 LongNumber operator-(const LongNumber &a, const LongNumber &b) {
-    return {};
+    if (a.sign != b.sign) {
+        return a + (-b);
+    }
+    if (a < b) {
+        return -(b - a);
+    }
+    if (a == b) {
+        return {};
+    }
+
+    LongNumber c;
+
+    c.fractional.resize(max<size_t>(a.fractional.size(), b.fractional.size()));
+    c.decimal.resize(max<size_t>(a.decimal.size(), b.decimal.size()));
+
+    uint32_t overflow = 0;
+
+    if (a.fractional.size() > b.fractional.size()) {
+        for (int i = a.fractional.size() - 1; i >= b.fractional.size(); --i) {
+            c.fractional[i] = a.fractional[i];
+        }
+    } else if (a.fractional.size() < b.fractional.size()) {
+        for (int i = b.fractional.size() - 1; i >= a.fractional.size(); --i) {
+            auto res = subtract(overflow, b.fractional[i]);
+            overflow = res.overflow;
+            c.fractional[i] = res.remainder;
+        }
+    }
+
+
+    for (int i = min<size_t>(a.fractional.size(), b.fractional.size()) - 1; i >= 0; --i) {
+        uint32_t ai = a.fractional[i], bi = b.fractional[i];
+
+        auto res = subtract(ai, bi, overflow);
+        overflow = res.overflow;
+        c.fractional[i] = res.remainder;
+    }
+
+
+    for (int i = min<size_t>(a.decimal.size(), b.decimal.size()) - 1; i >= 0; --i) {
+        uint32_t ai = a.decimal[i], bi = b.decimal[i];
+
+        auto res = subtract(ai, bi, overflow);
+        overflow = res.overflow;
+        c.decimal[i] = res.remainder;
+    }
+
+    if (a.decimal.size() > b.decimal.size()) {
+        for (int i = b.decimal.size(); i < a.decimal.size(); ++i) {
+            auto res = sum(a.decimal[i], overflow);
+            c.decimal[i] = res.remainder;
+            overflow = overflow;
+        }
+    }
+    c.normalise();
+    return c;
 }
 
 LongNumber operator*(const LongNumber &a, const LongNumber &b) {
     LongNumber c;
+    c.sign = a.sign == b.sign ? Sign::POSITIVE : Sign::NEGATIVE;
     c.fractional.resize(a.fractional.size() * b.fractional.size());
     c.decimal.resize(a.decimal.size() * b.decimal.size());
     int n = max<size_t>(a.decimal.size(), b.decimal.size());
@@ -247,10 +324,10 @@ LongNumber operator*(const LongNumber &a, const LongNumber &b) {
 }
 
 LongNumber operator/(const LongNumber &a, const LongNumber &b) {
-    return {0};
+//    return {0};
 }
 
-bool compare_sign_regardless(LongNumber &a, LongNumber &b) {
+bool compare_sign_regardless(const LongNumber &a, const LongNumber &b) {
     if (a.decimal.size() > b.decimal.size()) {
         return true;
     } else if (a.decimal.size() < b.decimal.size()) {
@@ -272,7 +349,7 @@ bool compare_sign_regardless(LongNumber &a, LongNumber &b) {
     return a.fractional.size() > b.fractional.size();
 }
 
-bool operator>(LongNumber &a, LongNumber &b) {
+bool operator>(const LongNumber &a, const LongNumber &b) {
     if (a.sign != b.sign) {
         return a.sign == Sign::POSITIVE;
     } else if (a.sign == Sign::NEGATIVE && b.sign == Sign::NEGATIVE) {
@@ -282,11 +359,11 @@ bool operator>(LongNumber &a, LongNumber &b) {
 
 }
 
-bool operator<(LongNumber &a, LongNumber &b) {
+bool operator<(const LongNumber &a, const LongNumber &b) {
     return b > a;
 }
 
-bool operator==(LongNumber &a, LongNumber &b) {
+bool operator==(const LongNumber &a, const LongNumber &b) {
     if (a.decimal.size() != b.decimal.size() || a.fractional.size() != b.fractional.size()) {
         return false;
     }
@@ -304,7 +381,7 @@ bool operator==(LongNumber &a, LongNumber &b) {
 
 }
 
-bool operator!=(LongNumber &a, LongNumber &b) {
+bool operator!=(const LongNumber &a, const LongNumber &b) {
     return !(a == b);
 }
 
@@ -345,13 +422,16 @@ LongNumber LongNumber::operator+=(const LongNumber &b) {
 }
 
 LongNumber LongNumber::operator-=(const LongNumber &b) {
-    return *this - b;
+    *this = *this - b;
+    return *this;
 }
 
 LongNumber LongNumber::operator*=(const LongNumber &b) {
-    return *this * b;
+    *this = *this * b;
+    return *this;
 }
 
 LongNumber LongNumber::operator/=(const LongNumber &b) {
-    return *this / b;
+    *this = *this / b;
+    return *this;
 }

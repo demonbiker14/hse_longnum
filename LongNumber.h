@@ -18,16 +18,19 @@ enum Sign {
 
 class LongNumber {
 private:
-    vector<uint32_t> decimal; // stored from lower to higher. Ex: 121123 <-
-    vector<uint32_t> fractional; // stored from higher to lower. Ex: 0.19123 ->
+    vector<uint32_t> decimal; // stored from lower to higher. Normalised. Ex: 121123 <-
+    vector<uint32_t> fractional; // stored from higher to lower. Normalised. Ex: 0.19123 ->
 
     Sign sign;
 public:
+    explicit LongNumber(const string str);
+
+
     LongNumber(const vector<uint32_t> &decimal, const vector<uint32_t> &fractional, Sign sign);
 
     LongNumber(const LongNumber &num);
 
-    LongNumber(const int32_t &num);
+    explicit LongNumber(const int32_t &num);
 
 
     LongNumber() {
@@ -35,8 +38,6 @@ public:
         fractional = {0};
         sign = Sign::POSITIVE;
     }
-
-    explicit LongNumber(string &str);
 
 
     string to_string();
@@ -62,15 +63,15 @@ public:
     friend LongNumber operator/(const LongNumber &a, const LongNumber &b);
 
 
-    friend bool operator>(LongNumber &a, LongNumber &b);
+    friend bool operator>(const LongNumber &a, const LongNumber &b);
 
-    friend bool operator<(LongNumber &a, LongNumber &b);
+    friend bool operator<(const LongNumber &a, const LongNumber &b);
 
-    friend bool operator==(LongNumber &a, LongNumber &b);
+    friend bool operator==(const LongNumber &a, const LongNumber &b);
 
-    friend bool operator!=(LongNumber &a, LongNumber &b);
+    friend bool operator!=(const LongNumber &a, const LongNumber &b);
 
-    friend bool compare_sign_regardless(LongNumber &a, LongNumber &b);
+    friend bool compare_sign_regardless(const LongNumber &a, const LongNumber &b);
 
     LongNumber shift_chunks(int chunks) const;
 
@@ -85,15 +86,15 @@ LongNumber operator*(const LongNumber &a, const LongNumber &b);
 
 LongNumber operator/(const LongNumber &a, const LongNumber &b);
 
-bool operator>(LongNumber &a, LongNumber &b);
+bool operator>(const LongNumber &a, const LongNumber &b);
 
-bool operator<(LongNumber &a, LongNumber &b);
+bool operator<(const LongNumber &a, const LongNumber &b);
 
-bool operator==(LongNumber &a, LongNumber &b);
+bool operator==(const LongNumber &a, const LongNumber &b);
 
-bool operator!=(LongNumber &a, LongNumber &b);
+bool operator!=(const LongNumber &a, const LongNumber &b);
 
-bool compare_sign_regardless(LongNumber &a, LongNumber &b);
+bool compare_sign_regardless(const LongNumber &a, const LongNumber &b);
 
 
 struct OperationResult {
@@ -102,6 +103,10 @@ struct OperationResult {
 };
 
 OperationResult sum(uint32_t a, uint32_t b);
+
+OperationResult subtract(uint32_t a, uint32_t b);
+
+OperationResult subtract(uint32_t a, uint32_t b, uint32_t overflow);
 
 OperationResult multiply(uint32_t a, uint32_t b);
 
